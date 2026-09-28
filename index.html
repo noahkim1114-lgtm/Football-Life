@@ -6156,7 +6156,7 @@ function proOffers(kind) {
     else if (g.startsWith('CHN')) p = age >= 24 && fit >= -4 && fit <= 20 ? 0.022 : 0;
     else if (g.startsWith('KSA')) p = age >= 25 && fit >= -3 && fit <= 24 ? 0.03 * (y >= 2023 && age >= 29 ? 1.8 : 1) : 0; // the post-2023 league chases famous names in their thirties
     else if (g === 'USA1') p = age >= 27 && fit >= -3 && fit <= 18 ? 0.025 : 0;
-    else if (BIG5[g]) p = age <= 31 && o >= 63 && fit >= -2 && fit <= 14 ? 0.03 : 0;
+    else if (BIG5[g]) p = (age <= 31 || cd.S >= 78) && o >= 63 && fit >= -2 && (fit <= 14 || cd.S >= 77) ? 0.03 : 0; // the elite clubs want the best, however far above them
     else if (/^(QAT|UAE)/.test(g)) p = age >= 25 && fit >= -3 && fit <= 22 ? 0.02 : 0;
     else if (/^MEX/.test(g)) p = age <= 32 && fit >= -3 && fit <= 16 ? (myConf === 'CONMEBOL' || myConf === 'CONCACAF' ? 0.03 : 0.006) : 0;
     else if (/^(BRA|ARG|URU|COL|CHI)/.test(g)) p = age <= 31 && fit >= -3 && fit <= 14 ? (myConf === 'CONMEBOL' ? 0.02 : 0.003) : 0;
@@ -6164,7 +6164,7 @@ function proOffers(kind) {
     else if (g === 'AUS1') p = age <= 31 && fit >= -3 && fit <= 16 ? (myConf === 'AFC' ? 0.015 : 0.006) : 0;
     else { // the rest of Europe: the bigger leagues buy more from abroad
       const wt = { TUR1: 1, NED1: 1, POR1: 1, BEL1: 1, RUS1: 0.6, GRE1: 0.7, AUT1: 0.8, SCO1: 0.7, SUI1: 0.55, DEN1: 0.55, CZE1: 0.45, CRO1: 0.4, SRB1: 0.4, POL1: 0.45, UKR1: 0.35, SWE1: 0.4, NOR1: 0.4 }[g];
-      p = age <= 28 && o >= 57 && fit >= -3 && fit <= 12 ? 0.03 * (wt === undefined ? 1 : wt) * (wt !== undefined && euC(my) ? 1.4 : 1) : 0;
+      p = age <= 28 && o >= 57 && fit >= -3 && (fit <= 12 || cd.S >= 75) ? 0.03 * (wt === undefined ? 1 : wt) * (wt !== undefined && euC(my) ? 1.4 : 1) : 0;
     }
     p *= clamp(1 + (o - 66) / 9, 0.6, 3.2) * (0.7 + cs.rep / 90) * (kind === 'fa' ? 1.8 : 1) * (cs.flags.wantMove ? 1.7 : 1) * (cs.flags.agent ? 1.25 : 1);
     if (kr && europe(g) && cs.mil === 'none' && age >= 25) p *= age >= 27 ? 0 : 0.5;
@@ -8729,6 +8729,14 @@ function autoTrain() {
   for (const k of trainKeys()) { if (!pw[k]) continue; const v = trainP(k, false) * pw[k]; if (v > bv) { bv = v; bk = k; } }
   cs.train = { k: cs.fat >= 65 ? 'rest' : bk, sp: false };
 }
+// how good a club is for me: its level (the big five leagues a little more), less the time I would spend on its bench
+const AUTO_DEST = new Set(['ENG1', 'ESP1', 'GER1', 'ITA1', 'FRA1', 'ENG2', 'NED1', 'POR1', 'BEL1', 'TUR1', 'SCO1', 'AUT1', 'GER2', 'ESP2', 'ITA2', 'FRA2', 'USA1', 'KSA1', 'JPN1', 'CHN1', 'MEX1', 'BRA1', 'ARG1', 'QAT1', 'UAE1', 'GRE1', 'SUI1', 'DEN1', 'RUS1']);
+function autoU(S, lg, o, age, role) {
+  const bench = Math.max(0, S + 1 - o) * (age <= 20 ? 1.2 : 2);
+  const home = isKr() ? isKL(lg) : countryOfLg(lg) === MYN() || lg === lowKey(MYN());
+  const far = lg && !home && !AUTO_DEST.has(lg) ? 3 : 0; // few would move to a small league on another continent for a small step
+  return S + (BIG5[lg] ? 1.5 : 0) - bench - far + (role === '주전 보장' ? 1.5 : role === '백업·유망주' && age >= 22 ? -3 : 0);
+}
 function autoDecide(p) {
   const me = ME(), ids = (p.opts || []).map(o => o.v), has = v => ids.includes(v), offers = p.offers || [];
   const safe = () => ids.find(v => v !== 'quit' && v !== 'no') || ids.find(v => v !== 'quit') || ids[0];
@@ -8747,22 +8755,43 @@ function autoDecide(p) {
       if (i >= 0 && (pro(offers[i]) || !has('stay'))) return String(i);
       return has('stay') ? 'stay' : has('hobby') ? 'hobby' : i >= 0 ? String(i) : safe();
     }
-    case 'grad': { const i = bestBy(o => pro(o) ? (o.S || 0) + (o.role === '백업·유망주' ? -4 : 0) + 20 : o.kind === 'uni' ? 10 : 5); return i >= 0 ? String(i) : (has('stay') ? 'stay' : safe()); }
-    case 'offer': { const cur = me.team ? teamStr(me.team) : 0; let best = has('no') ? 'no' : safe(), bs = cur + 1.5; offers.forEach((o, i) => { const s = (o.S || 0) - (o.role === '백업·유망주' ? 5 : 0) + (o.loan ? 3 : 0); if (s > bs) { bs = s; best = String(i); } }); return best; }
+    case 'grad': { const o0 = ovr(me), a0 = ageOf(me), i = bestBy(o => pro(o) ? autoU(o.S || 0, o.lg || '', o0, a0, o.role) + 40 : o.kind === 'uni' ? 10 : 5); return i >= 0 ? String(i) : (has('stay') ? 'stay' : safe()); }
+    // a move up, but to a club where I will actually play: the best level at which I am still a regular
+    case 'offer': {
+      const o = ovr(me), age = ageOf(me), low = W.cs.act === 'k3';
+      const role = me.team ? myRole() : 9, last = (W.cs.clubHist || []).slice(-1)[0], yrs = last ? (W.aw - last.aw) / 52 : 9;
+      const curU = low || !me.team ? -1e9 : autoU(teamStr(me.team), myLeagueKey() || '', o, age, null) - (role >= 2 ? 5 : role === 0 ? -1 : 0);
+      let best = has('no') ? 'no' : safe(), bs = curU + 2.5 + (yrs < 1.5 ? 2 : 0); // a move has to be clearly worth it, more so after a short stay
+      offers.forEach((x, i) => { const s = autoU(x.S || 0, x.lg || '', o, age, x.role) + (x.loan ? 1 : 0) - (x.kind === 'k3' ? 20 : 0); if (s > bs) { bs = s; best = String(i); } });
+      return best;
+    }
     case 'nego': return has('sign') ? 'sign' : safe();
-    case 'renew': return has('yes') ? 'yes' : safe();
+    // stay where I am only if the club still fits my level
+    case 'renew': { const cur = me.team ? teamStr(me.team) : 0, o = ovr(me); if (has('no') && ageOf(me) <= 29 && o - cur >= 7 && cur < 80 && W.cs.act !== 'k3') return 'no'; return has('yes') ? 'yes' : safe(); }
     case 'semi': return has('yes') ? 'yes' : safe();
-    case 'xreq': return has('stay') ? 'stay' : safe();
-    case 'mil': return has('sangmu') ? 'sangmu' : has('later') ? 'later' : has('army') ? 'army' : safe();
+    // my club blocked a move: push for it when the suitor is clearly bigger
+    case 'xreq': { const cur = me.team ? teamStr(me.team) : 0, of = p.of; return has('push') && of && (of.S || 0) + (BIG5[of.lg] ? 1.5 : 0) >= cur + 4 ? 'push' : has('stay') ? 'stay' : safe(); }
+    // military service: abroad, or still young, wait for an Asian Games or Olympic medal; at the deadline, 상무
+    case 'mil': { const abroad = me.team && !isKL(myLeagueKey() || 'K1'); if (has('later') && (abroad || ageOf(me) < 26)) return 'later'; return has('sangmu') ? 'sangmu' : has('army') ? 'army' : safe(); }
     case 'retire': return has('no') ? 'no' : safe();
-    case 'fa': { const i = bestBy(o => o.S || 0); return i >= 0 ? String(i) : has('wait') ? 'wait' : safe(); }
+    case 'fa': { const o0 = ovr(me), a0 = ageOf(me), i = bestBy(o => autoU(o.S || 0, o.lg || '', o0, a0, o.role) - (o.kind === 'k3' ? 30 : 0)); return i >= 0 ? String(i) : has('wait') ? 'wait' : safe(); }
     default: return ids.find(v => v !== 'quit') || ids[0];
   }
+}
+// what a player does between decisions: asks to leave a club he has outgrown, withdraws the request once he fits
+function autoMoves() {
+  const me = ME(), cs = W.cs;
+  if (cs.stage !== 'PRO' || !me.team || cs.act === 'k3' || cs.loan) return;
+  const cur = teamStr(me.team), recent = W.mm.filter(m => m.aw > W.aw - 12 && !m.nt && m.lv === 'PRO');
+  const benched = myRole() >= 2 && recent.length >= 3 && !recent.some(m => m.pl); // sitting out match after match
+  const want = (ovr(me) - cur >= 6 && cur < 80 && ageOf(me) <= 31) || benched;
+  if (want && !cs.flags.wantMove) { cs.flags.wantMove = true; cs.trust = Math.max(0, cs.trust - 8); cs.rep += 3; addNews('구단에 이적을 요청했다.'); }
+  else if (!want && cs.flags.wantMove) cs.flags.wantMove = false;
 }
 // one step of the auto life: a decision, or a week
 function autoStep() {
   if (W.pend) { decide(autoDecide(W.pend)); return null; }
-  autoTrain();
+  autoTrain(); if (WK(W.aw) % 4 === 0) autoMoves();
   return advanceWeek();
 }
 
